@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+data/raw/
+data/stems/
+data/processed/
+*.pt
+*.pth
+mlruns/
+.venv/
+*.egg-info/
