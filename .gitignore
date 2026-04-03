@@ -9,3 +9,5 @@ data/processed/
 mlruns/
 .venv/
 *.egg-info/
+*.mp3
+*.wav
