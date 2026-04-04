@@ -1,7 +1,6 @@
 import json
 import argparse
 import os
-import numpy as np
 from pydantic import ValidationError
 from schemas import StemAnalysisResult
 import librosa
@@ -20,29 +19,18 @@ def analyze(stem_path: str) -> str:
         t_ms = i * 100
         rms_timeline.append({"t_ms": t_ms, "rms": float(rms_val)})
 
-    pitch = librosa.yin(
-        y,
-        fmin=librosa.note_to_hz("E1"),
-        fmax=librosa.note_to_hz("G3"),
-        hop_length=samples_per_100_ms,
-    )
-
-    notes_list = []
+    chroma = librosa.feature.chroma_stft(y=y, sr=sr, hop_length=samples_per_100_ms)
     duration_ms = len(y) / sr * 1000
 
-    for i, hz in enumerate(pitch):
-        if not np.isnan(hz) and hz > 0:
-            t_ms = i * 100
-            midi = int(librosa.hz_to_midi(hz))
+    pitch_names = librosa.midi_to_note(range(12), octave=False)
 
-            notes_list.append(
-                {
-                    "onset_ms": float(t_ms),
-                    "pitch_midi": midi,
-                    "pitch_hz": float(hz),
-                    "duration_ms": 100.0,
-                }
-            )
+    chroma_timeline = []
+    for i in range(chroma.shape[1]):
+
+        t_ms = float(i * 100)
+
+        energy_dict = {pitch_names[j]: float(chroma[j, i]) for j in range(12)}
+        chroma_timeline.append({"t_ms": t_ms, "energy": energy_dict})
 
     try:
         result_obj = StemAnalysisResult(
@@ -50,8 +38,7 @@ def analyze(stem_path: str) -> str:
             duration_ms=duration_ms,
             rms_timeline=rms_timeline,
             onsets=[],
-            notes=notes_list,
-            chroma_timeline=None,
+            chroma_timeline=chroma_timeline,
         )
         return result_obj.model_dump_json()
 
@@ -69,7 +56,7 @@ def main():
         return
 
     stem_analysis = analyze(args.path)
-    return stem_analysis
+    print(stem_analysis)
 
 
 if __name__ == "__main__":
