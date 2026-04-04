@@ -1,12 +1,13 @@
 import json
 import argparse
 import os
+import numpy as np
 from pydantic import ValidationError
 from schemas import StemAnalysisResult
 import librosa
 
 
-def analyze(stem_path: str):
+def analyze(stem_path: str) -> str:
     y, sr = librosa.load(stem_path)
     samples_per_100_ms = int(sr * 0.1)
     rms_array = librosa.feature.rms(
@@ -19,21 +20,38 @@ def analyze(stem_path: str):
         t_ms = i * 100
         rms_timeline.append({"t_ms": t_ms, "rms": float(rms_val)})
 
-    onsets = []
+    pitch = librosa.yin(
+        y,
+        fmin=librosa.note_to_hz("E1"),
+        fmax=librosa.note_to_hz("G3"),
+        hop_length=samples_per_100_ms,
+    )
 
-    onset_sec = librosa.onset.onset_detect(y=y, sr=sr, units="time")
-
-    for i, onset in enumerate(onset_sec):
-        onsets.append({"onset_ms": onset * 1000})
-
+    notes_list = []
     duration_ms = len(y) / sr * 1000
+
+    for i, hz in enumerate(pitch):
+        if not np.isnan(hz) and hz > 0:
+            t_ms = i * 100
+            midi = int(librosa.hz_to_midi(hz))
+
+            notes_list.append(
+                {
+                    "onset_ms": float(t_ms),
+                    "pitch_midi": midi,
+                    "pitch_hz": float(hz),
+                    "duration_ms": 100.0,
+                }
+            )
 
     try:
         result_obj = StemAnalysisResult(
-            stem="drums",
+            stem="bass",
             duration_ms=duration_ms,
             rms_timeline=rms_timeline,
-            onsets=onsets,
+            onsets=[],
+            notes=notes_list,
+            chroma_timeline=None,
         )
         return result_obj.model_dump_json()
 

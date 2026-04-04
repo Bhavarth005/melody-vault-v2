@@ -7,7 +7,7 @@ from schemas import StemAnalysisResult
 import librosa
 
 
-def analyze(stem_path: str) -> str:
+def analyze(stem_path: str):
     y, sr = librosa.load(stem_path)
     samples_per_100_ms = int(sr * 0.1)
     rms_array = librosa.feature.rms(
