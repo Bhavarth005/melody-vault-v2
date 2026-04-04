@@ -95,9 +95,7 @@ def main():
         return
 
     y, sr, analysis = analyse_audio(args.file_path)
-    analysis_json = json.dumps(
-        analysis, cls=NumpyEncoder, indent=2
-    )  # Added indent for readable JSON
+    analysis_json = json.dumps(analysis, cls=NumpyEncoder, indent=2)
     file_stem = Path(args.file_path).stem
     parent_dir = Path(args.file_path).parent.name
     json_filename = f"{parent_dir}_{file_stem}.json"
