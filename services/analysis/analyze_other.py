@@ -34,7 +34,7 @@ def analyze(stem_path: str) -> str:
 
     try:
         result_obj = StemAnalysisResult(
-            stem="bass",
+            stem="other",
             duration_ms=duration_ms,
             rms_timeline=rms_timeline,
             onsets=[],
