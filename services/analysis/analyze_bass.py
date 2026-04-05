@@ -8,6 +8,24 @@ import librosa
 
 
 def analyze(stem_path: str):
+    """
+    Performs audio feature extraction on a specific musical stem.
+
+    This function loads the audio file, calculates the RMS energy profile
+    using 100ms windows, and extracts stem-specific features (onsets for
+    drums, pitch for bass/vocals, or chromagram for 'other'). Results
+    are validated against the StemAnalysisResult Pydantic schema.
+
+    Args:
+        stem_path (str): Absolute or relative path to the source WAV/MP3 file.
+
+    Returns:
+        str: A JSON-encoded string containing the validated StemAnalysisResult.
+
+    Raises:
+        FileNotFoundError: If the stem_path does not exist.
+        ValidationError: If the extracted data does not match the Pydantic schema.
+    """
     y, sr = librosa.load(stem_path)
     samples_per_100_ms = int(sr * 0.1)
     rms_array = librosa.feature.rms(

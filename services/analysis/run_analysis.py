@@ -8,11 +8,15 @@ import analyze_vocals
 import os
 
 
-def run_analysis():
-    pass
-
-
 def main():
+    """
+    Orchestrates the full four-stem analysis pipeline for a music track.
+
+    Reads a directory containing Demucs-separated stems, executes individual
+    analysis modules for vocals, drums, bass, and other, and aggregates
+    the results into a single comprehensive JSON report stored in the
+    data/processed directory.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("path", type=str, help="Path to all the stem files")
     parser.add_argument(
