@@ -2,6 +2,7 @@ import uuid
 import aiofiles
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
+import redis
 
 app = FastAPI(title="Melody Vault API")
 
@@ -39,3 +40,14 @@ async def upload_audio(file: UploadFile = File(...)):
         await file.close()
 
     return {"saved_as": safe_filename}
+
+
+@app.get("/ping-redis")
+def ping_redis():
+    """Temporary endpoint to test Docker networking."""
+    try:
+        # Docker automatically resolves 'redis' to the redis container's IP
+        r = redis.Redis(host="redis", port=6379)
+        return {"redis_ping": r.ping()}
+    except Exception as e:
+        return {"error": str(e)}

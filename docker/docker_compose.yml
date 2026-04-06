@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .. 
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Syncs your local code/data so you don't have to rebuild on every save
+      - ../services:/app/services
+      - ../data:/app/data
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    volumes:
+      - ../services:/app/services
+      - ../data:/app/data
+    depends_on:
+      - redis
+    # For now, we just keep the container alive. We replace this with Celery on Day 23.
+    command: sleep infinity
