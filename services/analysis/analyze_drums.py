@@ -2,7 +2,7 @@ import json
 import argparse
 import os
 from pydantic import ValidationError
-from schemas import StemAnalysisResult
+from services.analysis.schemas import StemAnalysisResult
 import librosa
 
 

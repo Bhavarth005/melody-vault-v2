@@ -19,6 +19,8 @@ uvicorn = "^0.44.0"
 python-multipart = "^0.0.24"
 aiofiles = "^25.1.0"
 redis = "^7.4.0"
+celery = "^5.6.3"
+websockets = "^16.0"
 
 
 [tool.poetry.group.dev.dependencies]
