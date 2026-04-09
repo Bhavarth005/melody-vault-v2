@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Melody Vault v2 — Analyzer</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Noto+Sans:wght@400;500;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<script>
+tailwind.config = {
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        primary: "#a413ec",
+        "primary-dark": "#7a0eb0",
+        "bg-dark": "#1c1022",
+        "surface": "#2b1933",
+        "surface-2": "#341d3e",
+        "border-dim": "#553267",
+        "text-muted": "#b792c9",
+      },
+      fontFamily: {
+        display: ["Space Grotesk", "sans-serif"],
+        body: ["Noto Sans", "sans-serif"],
+      },
+    },
+  },
+}
+</script>
+<style>
+  :root {
+    --primary: #a413ec;
+    --bg: #1c1022;
+    --surface: #2b1933;
+    --border: #553267;
+    --muted: #b792c9;
+  }
+
+  * { box-sizing: border-box; }
+  body { background: var(--bg); font-family: 'Space Grotesk', sans-serif; color: #fff; margin: 0; }
+
+  .bg-mesh {
+    background-color: #1c1022;
+    background-image:
+      radial-gradient(at 0% 0%, hsla(283,59%,20%,0.8) 0, transparent 55%),
+      radial-gradient(at 100% 100%, hsla(283,59%,18%,0.6) 0, transparent 50%);
+  }
+
+  /* ── upload zone ── */
+  .drop-zone {
+    border: 2px dashed rgba(164,19,236,0.35);
+    border-radius: 1rem;
+    background: rgba(43,25,51,0.5);
+    transition: border-color .25s, background .25s;
+    cursor: pointer;
+  }
+  .drop-zone.drag-over, .drop-zone:hover {
+    border-color: var(--primary);
+    background: rgba(43,25,51,0.85);
+  }
+
+  /* ── stem panels ── */
+  .stem-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    overflow: hidden;
+    transition: border-color .3s, box-shadow .3s;
+  }
+  .stem-panel.active {
+    border-color: var(--primary);
+    box-shadow: 0 0 24px rgba(164,19,236,0.25);
+  }
+  .stem-panel.completed { border-color: #22c55e; box-shadow: 0 0 16px rgba(34,197,94,0.15); }
+  .stem-panel.errored  { border-color: #ef4444; }
+
+  /* ── canvas glow bar ── */
+  .energy-canvas { display: block; width: 100%; height: 56px; }
+
+  /* ── piano roll ── */
+  #piano-roll-wrap {
+    background: #120b18;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    overflow: hidden;
+    position: relative;
+  }
+  #piano-roll-canvas { display: block; }
+
+  /* ── progress bar ── */
+  .progress-track { background: rgba(255,255,255,0.08); border-radius: 99px; overflow: hidden; }
+  .progress-fill  { height: 100%; border-radius: 99px; background: var(--primary); transition: width .4s ease; }
+
+  /* ── status badge ── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 600; letter-spacing: .04em;
+    padding: 2px 8px; border-radius: 99px; text-transform: uppercase;
+  }
+  .badge-pending  { background: rgba(255,255,255,0.08); color: #888; }
+  .badge-running  { background: rgba(164,19,236,0.2);   color: #c96df5; }
+  .badge-done     { background: rgba(34,197,94,0.15);   color: #4ade80; }
+  .badge-error    { background: rgba(239,68,68,0.15);   color: #f87171; }
+
+  /* ── scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── pulse dot ── */
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .pulse-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+
+  /* ── waveform history scroll ── */
+  @keyframes scroll-wave { from{transform:translateX(0)} to{transform:translateX(-50%)} }
+
+  /* ── note appear ── */
+  @keyframes note-in { from{opacity:0;transform:scaleX(0)} to{opacity:1;transform:scaleX(1)} }
+
+  /* ── shimmer ── */
+  @keyframes shimmer { 100%{transform:translateX(100%)} }
+  .shimmer::after {
+    content:''; position:absolute; inset:0;
+    background: linear-gradient(90deg,transparent,rgba(255,255,255,0.04),transparent);
+    transform: translateX(-100%);
+    animation: shimmer 2s infinite;
+  }
+</style>
+</head>
+<body class="bg-mesh min-h-screen flex flex-col">
+
+<!-- ─── HEADER ───────────────────────────────────────────────── -->
+<header class="sticky top-0 z-50 flex items-center justify-between border-b border-[#3c2348]/50 bg-[#1c1122]/90 backdrop-blur-md px-6 py-4 lg:px-10">
+  <a href="/" class="flex items-center gap-3 group">
+    <div class="flex items-center justify-center size-10 rounded-lg bg-primary/20 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+      <span class="material-symbols-outlined text-2xl">graphic_eq</span>
+    </div>
+    <h2 class="text-white text-xl font-bold tracking-tight">Melody Vault</h2>
+  </a>
+  <nav class="hidden md:flex items-center gap-8">
+    <a class="text-text-muted hover:text-white font-medium text-sm border-b-2 border-transparent pb-1 hover:border-white/20 transition-colors" href="/">Dashboard</a>
+    <a class="text-text-muted hover:text-white font-medium text-sm border-b-2 border-transparent pb-1 hover:border-white/20 transition-colors" href="/history">Library</a>
+    <a class="text-white font-bold text-sm border-b-2 border-primary pb-1" href="#">Analyzer</a>
+  </nav>
+  <div class="size-9 rounded-full bg-gradient-to-tr from-primary to-blue-500"></div>
+</header>
+
+<!-- ─── MAIN ──────────────────────────────────────────────────── -->
+<main class="flex-1 w-full max-w-[1400px] mx-auto px-4 lg:px-8 py-8 flex flex-col gap-8">
+
+  <!-- page title -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-3xl font-black tracking-tight">Stem Analyzer <span class="text-primary">v2</span></h1>
+      <p class="text-text-muted text-sm mt-1">Parallel AI analysis across all 4 stems in real time</p>
+    </div>
+    <button id="btn-new" onclick="resetAll()" class="hidden items-center gap-2 px-4 py-2 rounded-lg bg-primary hover:bg-primary-dark text-white text-sm font-bold transition-colors shadow-lg shadow-primary/20">
+      <span class="material-symbols-outlined text-sm">add</span> New Track
+    </button>
+  </div>
+
+  <!-- ── UPLOAD SECTION ── -->
+  <section id="section-upload">
+    <div id="drop-zone" class="drop-zone flex flex-col items-center justify-center gap-5 py-20 px-6 text-center relative">
+      <input type="file" id="file-input" class="hidden" accept=".mp3,.wav">
+      <div class="size-16 rounded-full bg-primary/10 flex items-center justify-center transition-transform duration-300 group-hover:scale-110">
+        <span class="material-symbols-outlined text-primary text-3xl">cloud_upload</span>
+      </div>
+      <div>
+        <p class="text-lg font-bold">Drag & drop your track here</p>
+        <p class="text-text-muted text-sm mt-1">MP3 or WAV · Demucs will separate stems automatically</p>
+      </div>
+      <button onclick="document.getElementById('file-input').click()" class="px-6 py-2.5 rounded-lg bg-white text-bg-dark text-sm font-bold hover:bg-white/90 transition-colors shadow-lg">
+        Browse Files
+      </button>
+    </div>
+
+    <!-- upload / demucs progress -->
+    <div id="upload-progress" class="hidden mt-4 p-5 rounded-2xl bg-surface border border-border-dim relative overflow-hidden shimmer">
+      <div class="flex items-center justify-between mb-3 relative z-10">
+        <div class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-primary pulse-dot">sync</span>
+          <div>
+            <p class="font-bold text-sm" id="up-filename">—</p>
+            <p class="text-text-muted text-xs" id="up-status">Uploading…</p>
+          </div>
+        </div>
+        <span class="text-primary font-bold text-sm" id="up-pct">0%</span>
+      </div>
+      <div class="progress-track h-1.5 relative z-10">
+        <div class="progress-fill" id="up-bar" style="width:0%"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── ANALYSIS SECTION (hidden until job starts) ── -->
+  <section id="section-analysis" class="hidden flex flex-col gap-6">
+
+    <!-- track info bar -->
+    <div class="flex items-center justify-between p-4 rounded-xl bg-surface border border-border-dim">
+      <div class="flex items-center gap-3">
+        <div class="size-10 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
+          <span class="material-symbols-outlined">music_note</span>
+        </div>
+        <div>
+          <p class="font-bold text-sm" id="track-name">—</p>
+          <p class="text-text-muted text-xs" id="track-jobid">job id: —</p>
+        </div>
+      </div>
+      <div id="overall-badge" class="badge badge-running">
+        <span class="pulse-dot inline-block size-1.5 rounded-full bg-current"></span>
+        Processing
+      </div>
+    </div>
+
+    <!-- ── 4 STEM PANELS ── -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4" id="stems-grid">
+
+      <!-- vocals -->
+      <div class="stem-panel flex flex-col" id="panel-vocals" data-stem="vocals">
+        <div class="flex items-center justify-between px-4 pt-4 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-lg">mic</span>
+            <span class="font-bold text-sm">Vocals</span>
+          </div>
+          <span class="badge badge-pending" id="badge-vocals">Pending</span>
+        </div>
+        <canvas class="energy-canvas" id="canvas-vocals"></canvas>
+        <div class="px-4 pb-4 pt-2 flex flex-col gap-1">
+          <div class="flex justify-between text-xs text-text-muted">
+            <span>Energy</span>
+            <span id="rms-vocals">—</span>
+          </div>
+          <div class="progress-track h-1">
+            <div class="progress-fill" id="rms-bar-vocals" style="width:0%"></div>
+          </div>
+          <p class="text-xs text-text-muted mt-1" id="info-vocals">Waiting for stem…</p>
+        </div>
+      </div>
+
+      <!-- drums -->
+      <div class="stem-panel flex flex-col" id="panel-drums" data-stem="drums">
+        <div class="flex items-center justify-between px-4 pt-4 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-lg">radio_button_checked</span>
+            <span class="font-bold text-sm">Drums</span>
+          </div>
+          <span class="badge badge-pending" id="badge-drums">Pending</span>
+        </div>
+        <canvas class="energy-canvas" id="canvas-drums"></canvas>
+        <div class="px-4 pb-4 pt-2 flex flex-col gap-1">
+          <div class="flex justify-between text-xs text-text-muted">
+            <span>Energy</span>
+            <span id="rms-drums">—</span>
+          </div>
+          <div class="progress-track h-1">
+            <div class="progress-fill" id="rms-bar-drums" style="width:0%"></div>
+          </div>
+          <p class="text-xs text-text-muted mt-1" id="info-drums">Waiting for stem…</p>
+        </div>
+      </div>
+
+      <!-- bass -->
+      <div class="stem-panel flex flex-col" id="panel-bass" data-stem="bass">
+        <div class="flex items-center justify-between px-4 pt-4 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-lg">graphic_eq</span>
+            <span class="font-bold text-sm">Bass</span>
+          </div>
+          <span class="badge badge-pending" id="badge-bass">Pending</span>
+        </div>
+        <canvas class="energy-canvas" id="canvas-bass"></canvas>
+        <div class="px-4 pb-4 pt-2 flex flex-col gap-1">
+          <div class="flex justify-between text-xs text-text-muted">
+            <span>Energy</span>
+            <span id="rms-bass">—</span>
+          </div>
+          <div class="progress-track h-1">
+            <div class="progress-fill" id="rms-bar-bass" style="width:0%"></div>
+          </div>
+          <p class="text-xs text-text-muted mt-1" id="info-bass">Waiting for stem…</p>
+        </div>
+      </div>
+
+      <!-- other -->
+      <div class="stem-panel flex flex-col" id="panel-other" data-stem="other">
+        <div class="flex items-center justify-between px-4 pt-4 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-lg">music_note</span>
+            <span class="font-bold text-sm">Other</span>
+          </div>
+          <span class="badge badge-pending" id="badge-other">Pending</span>
+        </div>
+        <canvas class="energy-canvas" id="canvas-other"></canvas>
+        <div class="px-4 pb-4 pt-2 flex flex-col gap-1">
+          <div class="flex justify-between text-xs text-text-muted">
+            <span>Energy</span>
+            <span id="rms-other">—</span>
+          </div>
+          <div class="progress-track h-1">
+            <div class="progress-fill" id="rms-bar-other" style="width:0%"></div>
+          </div>
+          <p class="text-xs text-text-muted mt-1" id="info-other">Waiting for stem…</p>
+        </div>
+      </div>
+    </div><!-- /stems-grid -->
+
+    <!-- ── PIANO ROLL + CHROMA (shown after analysis completes) ── -->
+    <div id="section-results" class="hidden flex flex-col gap-6">
+
+      <!-- piano roll -->
+      <div id="piano-roll-wrap">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-border-dim">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary">piano</span>
+            <span class="font-bold text-sm">Vocal Note Roll</span>
+            <span class="text-text-muted text-xs">(librosa stub — replaced by CNN-BiLSTM in Phase 3)</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <button id="btn-play" onclick="togglePlayback()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/40 text-primary text-sm font-bold transition-colors">
+              <span class="material-symbols-outlined text-sm" id="play-icon">play_arrow</span>
+              <span id="play-label">Play</span>
+            </button>
+            <span class="text-text-muted text-xs" id="playhead-time">0:00</span>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <canvas id="piano-roll-canvas" height="200"></canvas>
+        </div>
+        <!-- playhead time indicator -->
+        <div class="px-5 py-2 border-t border-border-dim">
+          <div class="progress-track h-1">
+            <div class="progress-fill" id="playhead-bar" style="width:0%;transition:width .1s linear"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- chroma heatmap -->
+      <div class="stem-panel">
+        <div class="flex items-center gap-2 px-5 py-3 border-b border-border-dim">
+          <span class="material-symbols-outlined text-primary">hub</span>
+          <span class="font-bold text-sm">Chord / Chroma Map</span>
+          <span class="text-text-muted text-xs ml-1">— from 'other' stem</span>
+        </div>
+        <div style="overflow-x:auto; padding: 16px 20px;">
+          <canvas id="chroma-canvas" height="120"></canvas>
+        </div>
+        <div class="px-5 pb-4 flex gap-4 flex-wrap">
+          <div id="dominant-notes" class="flex gap-2 flex-wrap"></div>
+        </div>
+      </div>
+
+    </div><!-- /section-results -->
+  </section><!-- /section-analysis -->
+
+</main>
+
+<footer class="border-t border-[#3c2348]/50 py-8 mt-auto">
+  <p class="text-center text-text-muted text-xs">Melody Vault v2 · Parallel AI Audio Analysis</p>
+</footer>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────
+const API_BASE = 'http://localhost:8000';   // empty = same origin. Change to 'http://localhost:8000' for dev without proxy.
+const STEMS    = ['vocals','drums','bass','other'];
+
+// ── STATE ─────────────────────────────────────────────────────────
+let jobId       = null;
+let ws          = null;
+let stemData    = {};          // { vocals: StemAnalysisResult, ... }
+let rmsHistory  = { vocals:[], drums:[], bass:[], other:[] };
+let animFrames  = {};          // canvas animation loop IDs
+let playbackMs  = 0;
+let playbackInterval = null;
+let isPlaying   = false;
+let totalDurMs  = 0;
+
+// ── DOM REFS ──────────────────────────────────────────────────────
+const dropZone        = document.getElementById('drop-zone');
+const fileInput       = document.getElementById('file-input');
+const secUpload       = document.getElementById('section-upload');
+const secAnalysis     = document.getElementById('section-analysis');
+const secResults      = document.getElementById('section-results');
+const uploadProgress  = document.getElementById('upload-progress');
+const upBar           = document.getElementById('up-bar');
+const upPct           = document.getElementById('up-pct');
+const upStatus        = document.getElementById('up-status');
+const upFilename      = document.getElementById('up-filename');
+const trackName       = document.getElementById('track-name');
+const trackJobId      = document.getElementById('track-jobid');
+const overallBadge    = document.getElementById('overall-badge');
+const btnNew          = document.getElementById('btn-new');
+
+// ── DROP ZONE ─────────────────────────────────────────────────────
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', ()=> dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+fileInput.addEventListener('change', e => { if(e.target.files[0]) handleFile(e.target.files[0]); });
+
+// ── UPLOAD ────────────────────────────────────────────────────────
+async function handleFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['mp3','wav'].includes(ext)) { alert('Only MP3 and WAV files are supported.'); return; }
+
+  upFilename.textContent = file.name;
+  uploadProgress.classList.remove('hidden');
+  setProgress(5, 'Uploading file…');
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  let data;
+  try {
+    const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: fd });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || res.statusText); }
+    data = await res.json();
+  } catch(err) {
+    setProgress(0, `Upload failed: ${err.message}`);
+    return;
+  }
+
+  jobId = data.job_id;
+  setProgress(20, 'Stem separation running (Demucs)…');
+
+  // show analysis section
+  secUpload.classList.add('hidden');
+  secAnalysis.classList.remove('hidden');
+  secAnalysis.classList.add('flex');
+  btnNew.classList.remove('hidden');
+  btnNew.classList.add('flex');
+  trackName.textContent  = file.name;
+  trackJobId.textContent = `job id: ${jobId}`;
+
+  openWebSocket(jobId);
+}
+
+function setProgress(pct, msg) {
+  upBar.style.width = `${pct}%`;
+  upPct.textContent  = `${Math.round(pct)}%`;
+  upStatus.textContent = msg;
+}
+
+// ── WEBSOCKET ─────────────────────────────────────────────────────
+function openWebSocket(id) {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const host  = API_BASE ? API_BASE.replace(/^https?/, proto) : `${proto}://${location.host}`;
+  ws = new WebSocket(`${host}/ws/${id}`);
+
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    handleWSMessage(msg);
+  };
+  ws.onerror = () => {
+    setOverallBadge('error','Connection error');
+  };
+  ws.onclose = () => {};
+}
+
+function handleWSMessage(msg) {
+  if (msg.stem && msg.status === 'started') {
+    setStemBadge(msg.stem, 'running', 'Analyzing…');
+    document.getElementById(`panel-${msg.stem}`).classList.add('active');
+  }
+  if (msg.stem && msg.status === 'completed') {
+    setStemBadge(msg.stem, 'done', 'Done');
+    document.getElementById(`panel-${msg.stem}`).classList.remove('active');
+    document.getElementById(`panel-${msg.stem}`).classList.add('completed');
+  }
+  if (msg.stem && msg.status === 'failed') {
+    setStemBadge(msg.stem, 'error', 'Error');
+    document.getElementById(`panel-${msg.stem}`).classList.add('errored');
+    document.getElementById(`info-${msg.stem}`).textContent = msg.error || 'Analysis failed';
+  }
+  if (msg.type === 'aggregate_ready') {
+    fetchAndRenderResults(jobId);
+  }
+}
+
+// ── FETCH FINAL RESULTS ───────────────────────────────────────────
+async function fetchAndRenderResults(id) {
+  let data;
+  try {
+    const res = await fetch(`${API_BASE}/result/${id}`);
+    data = await res.json();
+  } catch(e) { return; }
+
+  if (!data.results) return;
+
+  stemData = data.results;
+
+  STEMS.forEach(stem => {
+    const r = stemData[stem];
+    if (!r || r.error) return;
+    renderStemPanel(stem, r);
+  });
+
+  setOverallBadge('done', 'Analysis complete');
+  secResults.classList.remove('hidden');
+  secResults.classList.add('flex');
+
+  if (stemData.vocals && !stemData.vocals.error) {
+    renderPianoRoll(stemData.vocals);
+    totalDurMs = stemData.vocals.duration_ms;
+  }
+  if (stemData.other && !stemData.other.error) {
+    renderChromaMap(stemData.other);
+  }
+}
+
+// ── STEM PANEL RENDER ─────────────────────────────────────────────
+function renderStemPanel(stem, result) {
+  const rms = result.rms_timeline || [];
+
+  // info text
+  const infoEl = document.getElementById(`info-${stem}`);
+  if (stem === 'drums') {
+    const onsets = result.onsets || [];
+    infoEl.textContent = `${onsets.length} hits detected`;
+  } else if (stem === 'bass' || stem === 'vocals') {
+    const notes = result.notes || [];
+    infoEl.textContent = `${notes.length} note frames detected`;
+  } else if (stem === 'other') {
+    infoEl.textContent = `Chroma map ready`;
+  }
+
+  // peak RMS
+  const maxRms = rms.reduce((m,f) => Math.max(m, f.rms), 0);
+
+  // store for animation
+  rmsHistory[stem] = rms;
+
+  // start canvas animation loop
+  startEnergyLoop(stem, rms, maxRms);
+}
+
+// ── ENERGY CANVAS LOOP ────────────────────────────────────────────
+function startEnergyLoop(stem, rmsData, maxRms) {
+  const canvas = document.getElementById(`canvas-${stem}`);
+  const ctx    = canvas.getContext('2d');
+
+  // size canvas to element
+  function resize() {
+    canvas.width  = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // how many bars fit
+  const BAR_W   = 3;
+  const BAR_GAP = 1;
+  const COLS    = Math.floor(canvas.width / (BAR_W + BAR_GAP));
+  let   offset  = 0;
+
+  function draw() {
+    resize();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const h   = canvas.height;
+    const now = playbackMs;
+
+    // find frame index closest to playhead
+    let centerIdx = 0;
+    if (rmsData.length > 0) {
+      const approx = Math.floor(now / 100);
+      centerIdx = Math.min(approx, rmsData.length - 1);
+    }
+
+    const startIdx = Math.max(0, centerIdx - Math.floor(COLS / 2));
+
+    for (let col = 0; col < COLS; col++) {
+      const idx = startIdx + col;
+      if (idx >= rmsData.length) break;
+
+      const norm    = maxRms > 0 ? rmsData[idx].rms / maxRms : 0;
+      const barH    = Math.max(2, norm * h * 0.85);
+      const x       = col * (BAR_W + BAR_GAP);
+      const y       = (h - barH) / 2;
+      const isCur   = idx === centerIdx;
+
+      // colour: bright at playhead, dimmer away
+      const dist    = Math.abs(col - Math.floor(COLS / 2));
+      const alpha   = isCur ? 1 : Math.max(0.15, 1 - dist / (COLS / 1.5));
+      ctx.fillStyle = isCur
+        ? `rgba(164,19,236,${alpha})`
+        : norm > 0.5
+          ? `rgba(164,19,236,${alpha * 0.8})`
+          : `rgba(164,19,236,${alpha * 0.4})`;
+
+      ctx.beginPath();
+      ctx.roundRect(x, y, BAR_W, barH, 1);
+      ctx.fill();
+    }
+
+    // current RMS readout
+    if (rmsData[centerIdx]) {
+      const cur = rmsData[centerIdx].rms;
+      const pct = maxRms > 0 ? (cur / maxRms) * 100 : 0;
+      document.getElementById(`rms-${stem}`).textContent  = cur.toFixed(3);
+      document.getElementById(`rms-bar-${stem}`).style.width = `${pct}%`;
+    }
+
+    animFrames[stem] = requestAnimationFrame(draw);
+  }
+
+  if (animFrames[stem]) cancelAnimationFrame(animFrames[stem]);
+  draw();
+}
+
+// ── PIANO ROLL ────────────────────────────────────────────────────
+function renderPianoRoll(vocalsResult) {
+  const canvas = document.getElementById('piano-roll-canvas');
+  const wrap   = document.querySelector('#piano-roll-wrap div[style]');
+  const notes  = vocalsResult.notes || [];
+  const durMs  = vocalsResult.duration_ms;
+
+  // constants
+  const KEY_W    = 28;
+  const ROW_H    = 7;
+  const MIDI_MIN = 48;   // C3
+  const MIDI_MAX = 84;   // C6
+  const MIDI_RNG = MIDI_MAX - MIDI_MIN;
+  const PX_PER_MS = 0.18;
+
+  const totalW = KEY_W + Math.ceil(durMs * PX_PER_MS);
+  canvas.width  = totalW;
+  canvas.height = MIDI_RNG * ROW_H;
+
+  const ctx = canvas.getContext('2d');
+
+  // background rows
+  for (let i = 0; i < MIDI_RNG; i++) {
+    const midi = MIDI_MAX - i;
+    const isBlack = [1,3,6,8,10].includes(midi % 12);
+    ctx.fillStyle = isBlack ? '#0f0818' : '#160c20';
+    ctx.fillRect(KEY_W, i * ROW_H, totalW - KEY_W, ROW_H);
+    // row divider
+    ctx.fillStyle = 'rgba(85,50,103,0.3)';
+    ctx.fillRect(KEY_W, i * ROW_H + ROW_H - 1, totalW - KEY_W, 1);
+  }
+
+  // octave lines
+  for (let midi = MIDI_MIN; midi <= MIDI_MAX; midi++) {
+    if (midi % 12 === 0) {
+      const y = (MIDI_MAX - midi) * ROW_H;
+      ctx.fillStyle = 'rgba(164,19,236,0.25)';
+      ctx.fillRect(KEY_W, y, totalW - KEY_W, 1);
+    }
+  }
+
+  // piano keys (left column)
+  for (let i = 0; i < MIDI_RNG; i++) {
+    const midi    = MIDI_MAX - i;
+    const isBlack = [1,3,6,8,10].includes(midi % 12);
+    const isC     = midi % 12 === 0;
+    const y       = i * ROW_H;
+
+    ctx.fillStyle = isBlack ? '#1a0d24' : '#2b1933';
+    ctx.fillRect(0, y, KEY_W - 2, ROW_H);
+
+    if (isC) {
+      ctx.fillStyle = '#a413ec';
+      ctx.font = `bold ${ROW_H - 1}px 'Space Grotesk', sans-serif`;
+      ctx.fillText(`C${Math.floor(midi / 12) - 1}`, 2, y + ROW_H - 1);
+    }
+  }
+
+  // note blocks
+  notes.forEach(note => {
+    const midi = note.pitch_midi;
+    if (midi < MIDI_MIN || midi >= MIDI_MAX) return;
+    const row  = MIDI_MAX - midi;
+    const x    = KEY_W + note.onset_ms * PX_PER_MS;
+    const w    = Math.max(4, note.duration_ms * PX_PER_MS - 1);
+    const y    = row * ROW_H + 1;
+
+    // glow
+    ctx.shadowColor = '#a413ec';
+    ctx.shadowBlur  = 4;
+    ctx.fillStyle   = '#a413ec';
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, ROW_H - 2, 1.5);
+    ctx.fill();
+    ctx.shadowBlur  = 0;
+  });
+
+  // playhead — drawn in animation loop
+  startPlayheadLoop(canvas, ctx, KEY_W, PX_PER_MS, durMs);
+}
+
+// ── PLAYHEAD LOOP ─────────────────────────────────────────────────
+function startPlayheadLoop(canvas, ctx, keyW, pxPerMs, durMs) {
+  function draw() {
+    // erase previous playhead only — redraw full canvas is too expensive
+    // instead we overdraw the playhead column
+    const x = keyW + playbackMs * pxPerMs;
+    // thin bright line
+    ctx.clearRect(x - 1, 0, 3, canvas.height);
+    // redraw notes under playhead (simplified: just draw the line on top)
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillRect(x, 0, 1.5, canvas.height);
+
+    // update progress bar
+    const pct = durMs > 0 ? (playbackMs / durMs) * 100 : 0;
+    document.getElementById('playhead-bar').style.width = `${pct}%`;
+    const secs = Math.floor(playbackMs / 1000);
+    document.getElementById('playhead-time').textContent =
+      `${Math.floor(secs/60)}:${String(secs%60).padStart(2,'0')}`;
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+// ── PLAYBACK (simulated scrub — no audio element needed) ──────────
+function togglePlayback() {
+  if (isPlaying) {
+    clearInterval(playbackInterval);
+    isPlaying = false;
+    document.getElementById('play-icon').textContent  = 'play_arrow';
+    document.getElementById('play-label').textContent = 'Play';
+  } else {
+    isPlaying = true;
+    document.getElementById('play-icon').textContent  = 'pause';
+    document.getElementById('play-label').textContent = 'Pause';
+    const step = 50; // ms per tick
+    playbackInterval = setInterval(() => {
+      playbackMs += step;
+      if (playbackMs >= totalDurMs) {
+        playbackMs = 0;
+      }
+    }, step);
+  }
+}
+
+// ── CHROMA MAP ────────────────────────────────────────────────────
+function renderChromaMap(otherResult) {
+  const canvas = document.getElementById('chroma-canvas');
+  const chroma = otherResult.chroma_timeline || [];
+  if (chroma.length === 0) return;
+
+  const notes  = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const rows   = notes.length;
+  const cols   = chroma.length;
+  const cellH  = Math.floor(120 / rows);
+  const cellW  = Math.max(1, Math.floor(canvas.parentElement.offsetWidth / cols));
+
+  canvas.width  = cols * cellW;
+  canvas.height = rows * cellH;
+
+  const ctx = canvas.getContext('2d');
+
+  for (let c = 0; c < cols; c++) {
+    const frame = chroma[c];
+    notes.forEach((note, r) => {
+      const val   = frame.energy[note] || 0;
+      const alpha = Math.pow(val, 0.6); // gamma for visibility
+      ctx.fillStyle = `rgba(164,19,236,${alpha})`;
+      ctx.fillRect(c * cellW, r * cellH, cellW, cellH);
+    });
+  }
+
+  // note labels on left
+  ctx.font = `bold ${cellH - 1}px 'Space Grotesk', sans-serif`;
+  notes.forEach((note, r) => {
+    const isBlack = ['C#','D#','F#','G#','A#'].includes(note);
+    ctx.fillStyle = isBlack ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)';
+    ctx.fillText(note, 2, r * cellH + cellH - 2);
+  });
+
+  // dominant notes badge
+  const totals = {};
+  notes.forEach(n => { totals[n] = 0; });
+  chroma.forEach(f => notes.forEach(n => { totals[n] += f.energy[n] || 0; }));
+  const sorted = notes.slice().sort((a,b) => totals[b] - totals[a]);
+  const top3   = sorted.slice(0, 3);
+
+  const container = document.getElementById('dominant-notes');
+  container.innerHTML = '<span class="text-xs text-text-muted mr-1">Dominant:</span>' +
+    top3.map(n => `<span class="badge badge-running">${n}</span>`).join('');
+}
+
+// ── BADGE HELPERS ─────────────────────────────────────────────────
+function setStemBadge(stem, type, label) {
+  const el = document.getElementById(`badge-${stem}`);
+  el.className = `badge badge-${type}`;
+  if (type === 'running') {
+    el.innerHTML = `<span class="pulse-dot inline-block size-1.5 rounded-full bg-current"></span>${label}`;
+  } else {
+    el.textContent = label;
+  }
+  document.getElementById(`info-${stem}`).textContent =
+    type === 'running' ? 'Analysis in progress…' :
+    type === 'error'   ? 'Failed' : '';
+}
+
+function setOverallBadge(type, label) {
+  overallBadge.className = `badge badge-${type}`;
+  overallBadge.textContent = label;
+}
+
+// ── RESET ─────────────────────────────────────────────────────────
+function resetAll() {
+  if (ws) { ws.close(); ws = null; }
+  clearInterval(playbackInterval);
+  Object.values(animFrames).forEach(id => cancelAnimationFrame(id));
+  animFrames  = {};
+  stemData    = {};
+  rmsHistory  = { vocals:[], drums:[], bass:[], other:[] };
+  playbackMs  = 0;
+  isPlaying   = false;
+  jobId       = null;
+
+  STEMS.forEach(stem => {
+    document.getElementById(`panel-${stem}`).className = 'stem-panel flex flex-col';
+    setStemBadge(stem, 'pending', 'Pending');
+    document.getElementById(`info-${stem}`).textContent = 'Waiting for stem…';
+    document.getElementById(`rms-${stem}`).textContent  = '—';
+    document.getElementById(`rms-bar-${stem}`).style.width = '0%';
+  });
+
+  secAnalysis.classList.add('hidden');
+  secAnalysis.classList.remove('flex');
+  secResults.classList.add('hidden');
+  secResults.classList.remove('flex');
+  secUpload.classList.remove('hidden');
+  uploadProgress.classList.add('hidden');
+  upBar.style.width = '0%';
+  fileInput.value   = '';
+  btnNew.classList.add('hidden');
+  btnNew.classList.remove('flex');
+  setOverallBadge('running', 'Processing');
+}
+</script>
+</body>
+</html>

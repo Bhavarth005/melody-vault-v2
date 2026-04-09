@@ -51,7 +51,6 @@ def analyze(stem_path: str):
             stem="vocals",
             duration_ms=duration_ms,
             rms_timeline=rms_timeline,
-            onsets=[],
             notes=notes_list,
             chroma_timeline=None,
         )

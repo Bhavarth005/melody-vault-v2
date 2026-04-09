@@ -1,10 +1,7 @@
 import argparse
 import json
 from pathlib import Path
-import analyze_drums
-import analyze_bass
-import analyze_other
-import analyze_vocals
+from services.analysis import analyze_drums, analyze_bass, analyze_other, analyze_vocals
 import os
 
 
@@ -43,7 +40,8 @@ def main():
         ),
     }
 
-    output_dir = Path("../../data/processed")
+    BASE_DIR = Path(__file__).resolve().parent.parent.parent
+    output_dir = BASE_DIR / "data" / "processed"
     output_dir.mkdir(parents=True, exist_ok=True)
     save_path = output_dir / f"{track_name}_analysis.json"
 

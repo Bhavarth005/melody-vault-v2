@@ -55,7 +55,6 @@ def analyze(stem_path: str):
             stem="other",
             duration_ms=duration_ms,
             rms_timeline=rms_timeline,
-            onsets=[],
             chroma_timeline=chroma_timeline,
         )
         return result_obj.model_dump_json()

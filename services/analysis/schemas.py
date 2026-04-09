@@ -27,6 +27,6 @@ class StemAnalysisResult(BaseModel):
     stem: str
     duration_ms: float
     rms_timeline: list[RMSFrame]
-    onsets: list[OnsetEvent]
+    onsets: Optional[list[OnsetEvent]] = None
     notes: Optional[list[NoteEvent]] = None
     chroma_timeline: Optional[list[ChromaFrame]] = None

@@ -1,7 +1,6 @@
 import asyncio
 import uuid
 import json
-import subprocess
 import aiofiles
 from pathlib import Path
 from fastapi import (
@@ -15,6 +14,10 @@ from fastapi import (
 import redis
 from pydantic import BaseModel
 from services.worker.tasks import launch_analysis_chord
+from services.worker.tasks import run_demucs_task
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 
 app = FastAPI(title="Melody Vault API")
 
@@ -26,6 +29,8 @@ RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
 STEMS_DATA_DIR.mkdir(parents=True, exist_ok=True)
 redis_client = redis.Redis(host="redis", port=6379, db=0, decode_responses=True)
 
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "frontend")), name="static")
+
 
 class StartAnalysisRequest(BaseModel):
     job_id: str
@@ -33,45 +38,25 @@ class StartAnalysisRequest(BaseModel):
     extension: str = ".mp3"
 
 
+def get_redis_client():
+    return redis.Redis(host="redis", port=6379, db=0, decode_responses=True)
+
+
+@app.get("/")
+def serve_frontend():
+    return FileResponse(str(BASE_DIR / "frontend" / "analyzer.html"))
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-def _resolve_demucs_output(job_id: str) -> tuple[Path, str]:
-    """Find the directory containing 4 stems and infer extension."""
-    output_root = STEMS_DATA_DIR / job_id
-    candidates = [
-        (output_root / "mdx_extra_q" / job_id, ".wav"),
-        (output_root / "mdx_extra_q" / job_id, ".mp3"),
-        (output_root / job_id, ".wav"),
-        (output_root / job_id, ".mp3"),
-    ]
-
-    for stem_dir, ext in candidates:
-        if all(
-            (stem_dir / f"{stem}{ext}").exists()
-            for stem in ["vocals", "drums", "bass", "other"]
-        ):
-            return stem_dir, ext
-
-    for ext in [".wav", ".mp3"]:
-        for vocals_file in output_root.rglob(f"vocals{ext}"):
-            stem_dir = vocals_file.parent
-            if all(
-                (stem_dir / f"{stem}{ext}").exists()
-                for stem in ["vocals", "drums", "bass", "other"]
-            ):
-                return stem_dir, ext
-
-    raise FileNotFoundError("Demucs finished but expected stem files were not found.")
 
 
 @app.post("/upload", status_code=202)
 async def upload_audio(file: UploadFile = File(...)):
     """
     Receives an audio file, generates a unique ID,
-    and saves it asynchronously to the data/raw directory.
+    saves it, and offloads Demucs & Analysis to Celery.
     """
     extension = Path(file.filename).suffix.lower()
     if extension not in [".mp3", ".wav"]:
@@ -90,93 +75,17 @@ async def upload_audio(file: UploadFile = File(...)):
     finally:
         await file.close()
 
+    redis_client = get_redis_client()
     redis_client.set(
         f"analysis:{file_id}",
         json.dumps(
-            {"job_id": file_id, "status": "uploaded", "saved_as": safe_filename}
+            {"job_id": file_id, "status": "demucs_queued", "saved_as": safe_filename}
         ),
     )
 
-    # Run Demucs synchronously before fan-out analysis.
-    if not DEMUCS_SCRIPT.exists():
-        raise HTTPException(
-            status_code=500, detail="Demucs script not found at scripts/run_demucs.sh"
-        )
+    run_demucs_task.delay(str(save_path), file_id)
 
-    demucs_output_root = STEMS_DATA_DIR / file_id
-    redis_client.set(
-        f"analysis:{file_id}",
-        json.dumps(
-            {"job_id": file_id, "status": "demucs_running", "saved_as": safe_filename}
-        ),
-    )
-
-    try:
-        subprocess.run(
-            ["bash", str(DEMUCS_SCRIPT), str(save_path), str(demucs_output_root)],
-            cwd=str(BASE_DIR),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        redis_client.set(
-            f"analysis:{file_id}",
-            json.dumps(
-                {
-                    "job_id": file_id,
-                    "status": "failed",
-                    "stage": "demucs",
-                    "error": exc.stderr[-2000:] if exc.stderr else str(exc),
-                }
-            ),
-        )
-        raise HTTPException(
-            status_code=500, detail="Demucs failed. Check container logs for details."
-        )
-
-    try:
-        stem_dir, stem_ext = _resolve_demucs_output(file_id)
-    except FileNotFoundError as exc:
-        redis_client.set(
-            f"analysis:{file_id}",
-            json.dumps(
-                {
-                    "job_id": file_id,
-                    "status": "failed",
-                    "stage": "demucs",
-                    "error": str(exc),
-                }
-            ),
-        )
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    stem_paths = {
-        "vocals": str(stem_dir / f"vocals{stem_ext}"),
-        "drums": str(stem_dir / f"drums{stem_ext}"),
-        "bass": str(stem_dir / f"bass{stem_ext}"),
-        "other": str(stem_dir / f"other{stem_ext}"),
-    }
-
-    redis_client.set(
-        f"analysis:{file_id}",
-        json.dumps(
-            {
-                "job_id": file_id,
-                "status": "queued",
-                "stem_dir": str(stem_dir),
-                "stem_ext": stem_ext,
-            }
-        ),
-    )
-    chord_result = launch_analysis_chord(file_id, stem_paths)
-
-    return {
-        "job_id": file_id,
-        "status": "queued",
-        "saved_as": safe_filename,
-        "chord_id": chord_result.id,
-    }
+    return {"job_id": file_id, "status": "demucs_queued", "saved_as": safe_filename}
 
 
 @app.get("/ping-redis")

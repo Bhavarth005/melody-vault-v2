@@ -10,6 +10,7 @@ services:
       - ../services:/app/services
       - ../data:/app/data
       - ../scripts:/app/scripts
+      - ../frontend:/app/frontend
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - redis
@@ -24,6 +25,8 @@ services:
     volumes:
       - ../services:/app/services
       - ../data:/app/data
+      - ../scripts:/app/scripts
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - redis
     command: celery -A services.worker.celery_app:celery_app worker --loglevel=info --pool=threads --concurrency=4
